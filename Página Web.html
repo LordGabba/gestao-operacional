@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestão Operacional</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
+    body { display: flex; background: #f4f6f9; color: #1f2937; }
+    aside { width: 260px; min-height: 100vh; background: #111827; color: white; padding: 20px; position: fixed; }
+    aside h2 { margin-bottom: 25px; font-size: 22px; }
+    aside button { width: 100%; padding: 12px; margin-bottom: 8px; border: 0; border-radius: 8px; background: transparent; color: white; text-align: left; cursor: pointer; }
+    aside button:hover, aside button.active { background: #2563eb; }
+    main { margin-left: 260px; padding: 25px; width: calc(100% - 260px); }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 10px; flex-wrap: wrap; }
+    .card { background: white; padding: 20px; border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,.06); margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; }
+    .metric { background: white; padding: 20px; border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+    .metric strong { font-size: 28px; display: block; margin-top: 8px; color: #2563eb; }
+    input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; }
+    label { font-size: 13px; font-weight: bold; margin-bottom: 5px; display: block; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    button.primary { background: #2563eb; color: white; border: 0; padding: 11px 16px; border-radius: 8px; cursor: pointer; }
+    button.danger { background: #dc2626; color: white; border: 0; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+    button.edit { background: #f59e0b; color: white; border: 0; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; min-width: 900px; }
+    th, td { padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 14px; }
+    th { background: #f9fafb; }
+    .table-wrap { overflow-x: auto; }
+    .toast { position: fixed; right: 20px; bottom: 20px; background: #111827; color: white; padding: 14px 18px; border-radius: 10px; z-index: 99; }
+    .hidden { display: none; }
+    @media(max-width: 800px) {
+      aside { position: static; width: 100%; min-height: auto; }
+      body { flex-direction: column; }
+      main { margin-left: 0; width: 100%; }
+    }
+  </style>
+</head>
+
+<body>
+  <aside>
+    <h2>Gestão Operacional</h2>
+    <button class="active" onclick="abrirPagina('dashboard', this)">Dashboard</button>
+    <button onclick="abrirPagina('colaboradores', this)">Colaboradores</button>
+    <button onclick="abrirPagina('staff', this)">Staff / Liderança</button>
+    <button onclick="abrirPagina('escalas', this)">Escalas</button>
+    <button onclick="abrirPagina('programacoes', this)">Programações</button>
+    <button onclick="abrirPagina('ferias', this)">Férias</button>
+    <button onclick="abrirPagina('relatorios', this)">Relatórios</button>
+    <button onclick="abrirPagina('importacao', this)">Importação em Massa</button>
+    <button onclick="abrirPagina('configuracoes', this)">Configurações</button>
+  </aside>
+
+  <main id="app"></main>
+
+  <script>
+    const SUPABASE_URL = "https://pjeehaziodnxuakhacmc.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqZWVoYXppb2RueHVha2hhY21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxMjU1MzQsImV4cCI6MjA5NDcwMTUzNH0.h5mIzDOvVS3M8BDFy3TeLM4djdBFHTM72LOpKGNgLkg";
+
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const app = document.getElementById("app");
+
+    let colaboradorEditando = null;
+
+    function toast(msg) {
+      const div = document.createElement("div");
+      div.className = "toast";
+      div.innerText = msg;
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 3000);
+    }
+
+    function abrirPagina(pagina, botao) {
+      document.querySelectorAll("aside button").forEach(b => b.classList.remove("active"));
+      if (botao) botao.classList.add("active");
+
+      if (pagina === "dashboard") carregarDashboard();
+      if (pagina === "colaboradores") carregarColaboradores();
+      if (pagina !== "dashboard" && pagina !== "colaboradores") telaSimples(pagina);
+    }
+
+    async function carregarDashboard() {
+      app.innerHTML = "<h1>Carregando...</h1>";
+
+      const { data, error } = await db.from("colaboradores").select("*");
+
+      if (error) {
+        app.innerHTML = "<h1>Dashboard</h1><p>Erro ao carregar dados.</p>";
+        return;
+      }
+
+      const total = data.length;
+      const ativos = data.filter(c => c.status === "Ativo").length;
+      const ferias = data.filter(c => c.status_operacional === "Férias").length;
+      const desligados = data.filter(c => c.status === "Desligado").length;
+
+      app.innerHTML = `
+        <div class="top">
+          <h1>Dashboard</h1>
+        </div>
+
+        <div class="grid">
+          <div class="metric">Total de colaboradores <strong>${total}</strong></div>
+          <div class="metric">Ativos <strong>${ativos}</strong></div>
+          <div class="metric">Em férias <strong>${ferias}</strong></div>
+          <div class="metric">Desligados <strong>${desligados}</strong></div>
+        </div>
+      `;
+    }
+
+    async function carregarColaboradores() {
+      app.innerHTML = `
+        <div class="top">
+          <h1>Colaboradores</h1>
+          <button class="primary" onclick="limparFormulario()">Novo colaborador</button>
+        </div>
+
+        <div class="card">
+          <h2>Cadastro</h2><br>
+
+          <input type="hidden" id="id">
+
+          <div class="form-grid">
+            <div><label>Matrícula</label><input id="matricula"></div>
+            <div><label>Nome</label><input id="colaborador"></div>
+            <div><label>E-mail</label><input id="email"></div>
+            <div><label>CPF</label><input id="cpf"></div>
+            <div><label>Telefone</label><input id="telefone"></div>
+            <div><label>Cargo</label><input id="cargo"></div>
+            <div><label>Status</label>
+              <select id="status">
+                <option>Ativo</option>
+                <option>Férias</option>
+                <option>Afastado</option>
+                <option>Desligado</option>
+              </select>
+            </div>
+            <div><label>Célula</label><input id="celula"></div>
+            <div><label>Grupo</label><input id="grupo"></div>
+            <div><label>Horário</label><input id="horario"></div>
+            <div><label>Escala</label><input id="escala"></div>
+            <div><label>Filial</label><input id="filial"></div>
+            <div><label>Área</label><input id="area"></div>
+            <div><label>Supervisor</label><input id="supervisor"></div>
+            <div><label>Coordenador</label><input id="coordenador"></div>
+            <div><label>Data nascimento</label><input type="date" id="data_nasc"></div>
+            <div><label>Admissão</label><input type="date" id="admissao"></div>
+            <div><label>Primeiro dia férias</label><input type="date" id="primeiro_dia_ferias"></div>
+            <div><label>Último dia férias</label><input type="date" id="ultimo_dia_ferias"></div>
+          </div>
+
+          <br>
+
+          <label>Observações</label>
+          <textarea id="observacoes"></textarea>
+
+          <br><br>
+
+          <button class="primary" onclick="salvarColaborador()">Salvar</button>
+        </div>
+
+        <div class="card">
+          <div class="top">
+            <h2>Lista de colaboradores</h2>
+            <input style="max-width:300px" id="busca" placeholder="Pesquisar..." oninput="listarColaboradores()">
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Matrícula</th>
+                  <th>Nome</th>
+                  <th>E-mail</th>
+                  <th>Status</th>
+                  <th>Célula</th>
+                  <th>Horário</th>
+                  <th>Supervisor</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tabela-colaboradores"></tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      listarColaboradores();
+    }
+
+    async function listarColaboradores() {
+      const busca = document.getElementById("busca")?.value?.toLowerCase() || "";
+
+      const { data, error } = await db
+        .from("colaboradores")
+        .select("*")
+        .order("id", { ascending: false });
+
+      if (error) {
+        toast("Erro ao listar colaboradores");
+        return;
+      }
+
+      const filtrados = data.filter(c =>
+        String(c.colaborador || "").toLowerCase().includes(busca) ||
+        String(c.matricula || "").toLowerCase().includes(busca) ||
+        String(c.email || "").toLowerCase().includes(busca)
+      );
+
+      document.getElementById("tabela-colaboradores").innerHTML = filtrados.map(c => `
+        <tr>
+          <td>${c.matricula || ""}</td>
+          <td>${c.colaborador || ""}</td>
+          <td>${c.email || ""}</td>
+          <td>${c.status || ""}</td>
+          <td>${c.celula || ""}</td>
+          <td>${c.horario || ""}</td>
+          <td>${c.supervisor || ""}</td>
+          <td>
+            <button class="edit" onclick='editarColaborador(${JSON.stringify(c)})'>Editar</button>
+            <button class="danger" onclick="excluirColaborador(${c.id})">Excluir</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    function calcularIdade(data) {
+      if (!data) return null;
+      const nasc = new Date(data);
+      const hoje = new Date();
+      let idade = hoje.getFullYear() - nasc.getFullYear();
+      const mes = hoje.getMonth() - nasc.getMonth();
+
+      if (mes < 0 || (mes === 0 && hoje.getDate() < nasc.getDate())) {
+        idade--;
+      }
+
+      return idade;
+    }
+
+    function calcularTempoMeses(data) {
+      if (!data) return null;
+      const admissao = new Date(data);
+      const hoje = new Date();
+
+      return (
+        (hoje.getFullYear() - admissao.getFullYear()) * 12 +
+        hoje.getMonth() -
+        admissao.getMonth()
+      );
+    }
+
+    function validarCPF(cpf) {
+      cpf = String(cpf || "").replace(/\D/g, "");
+      return cpf.length === 11;
+    }
+
+    async function salvarColaborador() {
+      const cpf = document.getElementById("cpf").value;
+
+      if (cpf && !validarCPF(cpf)) {
+        toast("CPF inválido. Digite 11 números.");
+        return;
+      }
+
+      const dados = {
+        matricula: pegar("matricula"),
+        colaborador: pegar("colaborador"),
+        email: pegar("email"),
+        cpf: cpf,
+        telefone: pegar("telefone"),
+        cargo: pegar("cargo"),
+        status: pegar("status"),
+        celula: pegar("celula"),
+        grupo: pegar("grupo"),
+        horario: pegar("horario"),
+        escala: pegar("escala"),
+        filial: pegar("filial"),
+        area: pegar("area"),
+        supervisor: pegar("supervisor"),
+        coordenador: pegar("coordenador"),
+        data_nasc: pegar("data_nasc") || null,
+        idade: calcularIdade(pegar("data_nasc")),
+        admissao: pegar("admissao") || null,
+        tempo_meses: calcularTempoMeses(pegar("admissao")),
+        primeiro_dia_ferias: pegar("primeiro_dia_ferias") || null,
+        ultimo_dia_ferias: pegar("ultimo_dia_ferias") || null,
+        observacoes: pegar("observacoes"),
+        updated_at: new Date().toISOString()
+      };
+
+      let resposta;
+
+      if (colaboradorEditando) {
+        resposta = await db
+          .from("colaboradores")
+          .update(dados)
+          .eq("id", colaboradorEditando);
+      } else {
+        resposta = await db
+          .from("colaboradores")
+          .insert(dados);
+      }
+
+      if (resposta.error) {
+        toast("Erro ao salvar");
+        console.error(resposta.error);
+        return;
+      }
+
+      toast("Salvo com sucesso");
+      limparFormulario();
+      listarColaboradores();
+      carregarDashboard();
+    }
+
+    function pegar(id) {
+      return document.getElementById(id)?.value || "";
+    }
+
+    function editarColaborador(c) {
+      colaboradorEditando = c.id;
+
+      Object.keys(c).forEach(campo => {
+        const input = document.getElementById(campo);
+        if (input) input.value = c[campo] || "";
+      });
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function limparFormulario() {
+      colaboradorEditando = null;
+
+      document.querySelectorAll("input, textarea, select").forEach(el => {
+        if (el.id !== "busca") el.value = "";
+      });
+
+      const status = document.getElementById("status");
+      if (status) status.value = "Ativo";
+    }
+
+    async function excluirColaborador(id) {
+      if (!confirm("Deseja excluir este colaborador?")) return;
+
+      const { error } = await db
+        .from("colaboradores")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        toast("Erro ao excluir");
+        return;
+      }
+
+      toast("Excluído com sucesso");
+      listarColaboradores();
+      carregarDashboard();
+    }
+
+    function telaSimples(nome) {
+      app.innerHTML = `
+        <div class="top">
+          <h1>${nome}</h1>
+        </div>
+
+        <div class="card">
+          <p>Módulo em preparação.</p>
+          <p>Depois podemos adicionar cadastro, filtros, relatórios, importação e exportação aqui.</p>
+        </div>
+      `;
+    }
+
+    db.channel("colaboradores-realtime")
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "colaboradores"
+      }, () => {
+        if (document.getElementById("tabela-colaboradores")) {
+          listarColaboradores();
+        }
+      })
+      .subscribe();
+
+    carregarDashboard();
+  </script>
+</body>
+</html>
